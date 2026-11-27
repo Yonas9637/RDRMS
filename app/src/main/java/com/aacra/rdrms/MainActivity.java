@@ -33,7 +33,9 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends AppCompatActivity {
 
     // የGoogle Apps Script Web App URL እዚህ ያስገቡ
-    private static final String SHEET_WEB_APP_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
+    private static final String SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxPrSe4-TJW68aUSh0g-neM7Qu7xCfM1YcEuWcMITz9mNnhc8hY-I2dcpAtRZApMOjd/exec 
+
+";
 
     // አዲስ የቀለም ንድፍ (Deep Teal & Warm Slate)
     private static final String PRIMARY_DARK = "#004D40";
