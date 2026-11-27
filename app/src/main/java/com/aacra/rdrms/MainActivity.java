@@ -20,7 +20,20 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
 public class MainActivity extends AppCompatActivity {
+
+    // የGoogle Apps Script Web App URL እዚህ ያስገቡ
+    private static final String SHEET_WEB_APP_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
 
     // አዲስ የቀለም ንድፍ (Deep Teal & Warm Slate)
     private static final String PRIMARY_DARK = "#004D40";
@@ -102,6 +115,7 @@ public class MainActivity extends AppCompatActivity {
         spType.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
         spType.setPadding(dp(10), dp(6), dp(10), dp(6));
         content.addView(makeCard("2. የብልሽቱ ዓይነት *", spType));
+
         // Card 3: የብልሽቱ ሁኔታ + የቀለም ማሳያ
         LinearLayout severityBox = new LinearLayout(this);
         severityBox.setOrientation(LinearLayout.VERTICAL);
@@ -185,7 +199,8 @@ public class MainActivity extends AppCompatActivity {
         tvResult.setPadding(dp(16), dp(16), dp(16), dp(16));
         tvResult.setVisibility(View.GONE);
         content.addView(tvResult);
-            btnSubmit.setOnClickListener(v -> {
+
+        btnSubmit.setOnClickListener(v -> {
             String location = etLocation.getText().toString().trim();
             if (location.isEmpty()) {
                 etLocation.setError("እባክዎ የመንገዱን ስም ወይም አካባቢ ያስገቡ");
@@ -193,34 +208,134 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
+            if (SHEET_WEB_APP_URL.startsWith("PASTE_YOUR_WEB_APP_URL_HERE") || SHEET_WEB_APP_URL.trim().isEmpty()) {
+                Toast.makeText(this, "እባክዎ መጀመሪያ Google Apps Script Web App URL ያስገቡ", Toast.LENGTH_LONG).show();
+                return;
+            }
+
             String type = spType.getSelectedItem().toString();
             String severity = spSeverity.getSelectedItem().toString();
-            String notes = etNotes.getText().toString().trim();
-            String reporter = etReporter.getText().toString().trim();
+            String notesRaw = etNotes.getText().toString().trim();
+            String reporterRaw = etReporter.getText().toString().trim();
 
-            if (notes.isEmpty()) notes = "ምንም ማብራሪያ አልተሰጠም";
-            if (reporter.isEmpty()) reporter = "አልተጠቀሰም";
+            String notesDisplay = notesRaw.isEmpty() ? "ምንም ማብራሪያ አልተሰጠም" : notesRaw;
+            String reporterDisplay = reporterRaw.isEmpty() ? "አልተጠቀሰም" : reporterRaw;
 
             String summary = "✓ ጥቆማ በሚገባ ተመዝግቧል!\n\n"
                     + "• አካባቢ፡ " + location + "\n"
                     + "• ዓይነት፡ " + type + "\n"
                     + "• ሁኔታ፡ " + severity + "\n"
-                    + "• ማብራሪያ፡ " + notes + "\n"
-                    + "• ጠቋሚ፡ " + reporter;
+                    + "• ማብራሪያ፡ " + notesDisplay + "\n"
+                    + "• ጠቋሚ፡ " + reporterDisplay;
 
-            tvResult.setText(summary);
-            tvResult.setVisibility(View.VISIBLE);
+            btnSubmit.setEnabled(false);
+            btnSubmit.setText("እየተላከ ነው...");
 
-            etLocation.setText("");
-            etNotes.setText("");
-            etReporter.setText("");
+            sendReportToGoogleSheet(
+                    location,
+                    type,
+                    severity,
+                    notesDisplay,
+                    reporterDisplay,
+                    () -> runOnUiThread(() -> {
+                        btnSubmit.setEnabled(true);
+                        btnSubmit.setText("ጥቆማ አስገባ");
 
-            Toast.makeText(this, "የመንገድ ብልሽት ጥቆማ ተመዝግቧል", Toast.LENGTH_SHORT).show();
+                        tvResult.setText(summary);
+                        tvResult.setVisibility(View.VISIBLE);
+
+                        etLocation.setText("");
+                        etNotes.setText("");
+                        etReporter.setText("");
+
+                        Toast.makeText(this, "ጥቆማው ወደ Google Sheet ተልኳል", Toast.LENGTH_SHORT).show();
+                    }),
+                    errorMsg -> runOnUiThread(() -> {
+                        btnSubmit.setEnabled(true);
+                        btnSubmit.setText("ጥቆማ አስገባ");
+                        Toast.makeText(this, "መላክ አልተሳካም፡ " + errorMsg, Toast.LENGTH_LONG).show();
+                    })
+            );
         });
 
         root.addView(content);
         scrollView.addView(root);
         setContentView(scrollView);
+    }
+
+    private interface OnSuccessCallback {
+        void onSuccess();
+    }
+
+    private interface OnErrorCallback {
+        void onError(String message);
+    }
+
+    private void sendReportToGoogleSheet(
+            String roadName,
+            String issueType,
+            String severity,
+            String description,
+            String reporter,
+            OnSuccessCallback onSuccess,
+            OnErrorCallback onError
+    ) {
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+                try {
+                URL url = new URL(SHEET_WEB_APP_URL.trim());
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setInstanceFollowRedirects(true);
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(20000);
+
+                JSONObject payload = new JSONObject();
+                payload.put("road_name", roadName);
+                payload.put("issue_type", issueType);
+                payload.put("severity", severity);
+                payload.put("description", description);
+                payload.put("coordinates", "");
+                payload.put("reporter", reporter);
+
+                try (OutputStream os = conn.getOutputStream()) {
+                    byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
+                    os.write(input, 0, input.length);
+                    os.flush();
+                }
+
+                int code = conn.getResponseCode();
+                InputStream stream = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+                StringBuilder responseBuilder = new StringBuilder();
+                if (stream != null) {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            responseBuilder.append(line);
+                        }
+                    }
+                }
+
+                String responseText = responseBuilder.toString();
+                if (code >= 200 && code < 300) {
+                    if (responseText.contains("\"status\":\"error\"")) {
+                        onError.onError("Apps Script ስህተት አሳይቷል");
+                    } else {
+                        onSuccess.onSuccess();
+                    }
+                } else {
+                    onError.onError("HTTP " + code);
+                }
+            } catch (Exception e) {
+                onError.onError(e.getMessage() != null ? e.getMessage() : "የኔትወርክ ችግር");
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }).start();
     }
 
     private LinearLayout makeCard(String labelText, View fieldView) {
@@ -259,8 +374,7 @@ public class MainActivity extends AppCompatActivity {
         et.setLayoutParams(params);
         return et;
     }
-
-    private GradientDrawable makeFieldBox(String fillHex, String strokeHex, int radiusDp) {
+        private GradientDrawable makeFieldBox(String fillHex, String strokeHex, int radiusDp) {
         GradientDrawable gd = new GradientDrawable();
         gd.setColor(Color.parseColor(fillHex));
         gd.setStroke(dp(1), Color.parseColor(strokeHex));
