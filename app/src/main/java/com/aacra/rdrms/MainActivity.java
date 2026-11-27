@@ -32,10 +32,8 @@ import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends AppCompatActivity {
 
-    // የGoogle Apps Script Web App URL እዚህ ያስገቡ
-    private static final String SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxPrSe4-TJW68aUSh0g-neM7Qu7xCfM1YcEuWcMITz9mNnhc8hY-I2dcpAtRZApMOjd/exec 
-
-";
+    // የGoogle Apps Script Web App URL እዚህ ተገብቷል
+    private static final String SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxPrSe4-TJW68aUSh0g-neM7Qu7xCfM1YcEuWcMITz9mNnhc8hY-I2dcpAtRZApMOjd/exec";
 
     // አዲስ የቀለም ንድፍ (Deep Teal & Warm Slate)
     private static final String PRIMARY_DARK = "#004D40";
@@ -102,7 +100,6 @@ public class MainActivity extends AppCompatActivity {
         // Card 1: የመንገዱ ስም ወይም አካባቢ
         EditText etLocation = makeInput("ለምሳሌ፡- ቦሌ መድኃኔዓለም / ሜክሲኮ", InputType.TYPE_CLASS_TEXT);
         content.addView(makeCard("1. የመንገዱ ስም / አካባቢ *", etLocation));
-
         // Card 2: የብልሽቱ ዓይነት
         Spinner spType = new Spinner(this);
         String[] damageTypes = {
@@ -282,9 +279,9 @@ public class MainActivity extends AppCompatActivity {
             OnSuccessCallback onSuccess,
             OnErrorCallback onError
     ) {
-        new Thread(() -> {
+            new Thread(() -> {
             HttpURLConnection conn = null;
-                try {
+            try {
                 URL url = new URL(SHEET_WEB_APP_URL.trim());
                 conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
@@ -376,7 +373,8 @@ public class MainActivity extends AppCompatActivity {
         et.setLayoutParams(params);
         return et;
     }
-        private GradientDrawable makeFieldBox(String fillHex, String strokeHex, int radiusDp) {
+
+    private GradientDrawable makeFieldBox(String fillHex, String strokeHex, int radiusDp) {
         GradientDrawable gd = new GradientDrawable();
         gd.setColor(Color.parseColor(fillHex));
         gd.setStroke(dp(1), Color.parseColor(strokeHex));
