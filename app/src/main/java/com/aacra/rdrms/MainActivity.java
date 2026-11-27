@@ -1,9 +1,15 @@
 package com.aacra.rdrms;
 
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -16,90 +22,170 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class MainActivity extends AppCompatActivity {
 
+    // አዲስ የቀለም ንድፍ (Deep Teal & Warm Slate)
+    private static final String PRIMARY_DARK = "#004D40";
+    private static final String PRIMARY_ACCENT = "#00796B";
+    private static final String BG_SOFT = "#E9F0EE";
+    private static final String CARD_WHITE = "#FFFFFF";
+    private static final String FIELD_BG = "#F4F8F7";
+    private static final String BORDER_SOFT = "#C8D8D5";
+    private static final String TEXT_DARK = "#102A27";
+    private static final String TEXT_MUTED = "#526B67";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setBackgroundColor(Color.parseColor("#F5F7FA"));
+        // Status bar ቀለምን ከ Header ጋር ማጣጣም
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            Window window = getWindow();
+            window.setStatusBarColor(Color.parseColor(PRIMARY_DARK));
+        }
 
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        int pad = dp(18);
-        layout.setPadding(pad, pad, pad, pad);
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setBackgroundColor(Color.parseColor(BG_SOFT));
+        scrollView.setFillViewport(true);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+
+        // Top Header Banner
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setBackgroundColor(Color.parseColor(PRIMARY_DARK));
+        header.setPadding(dp(20), dp(22), dp(20), dp(22));
+
+        TextView badge = new TextView(this);
+        badge.setText("RDRMS • ROAD DAMAGE REPORTING");
+        badge.setTextSize(11f);
+        badge.setTypeface(null, Typeface.BOLD);
+        badge.setTextColor(Color.parseColor("#A7FFEB"));
+        badge.setPadding(0, 0, 0, dp(6));
+        header.addView(badge);
 
         TextView title = new TextView(this);
         title.setText("የመንገድ ብልሽት ጥቆማ ፎርም");
         title.setTextSize(22f);
-        title.setTextColor(Color.parseColor("#1A237E"));
-        title.setPadding(0, 0, 0, dp(6));
-        layout.addView(title);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(Color.WHITE);
+        header.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("የመንገድ ችግር ሲያጋጥም መረጃውን ከታች ይሙሉ");
-        subtitle.setTextSize(14f);
-        subtitle.setTextColor(Color.parseColor("#546E7A"));
-        subtitle.setPadding(0, 0, 0, dp(16));
-        layout.addView(subtitle);
+        subtitle.setText("የመንገድ ችግር ሲያጋጥም መረጃውን በትክክል ከታች ይሙሉ");
+        subtitle.setTextSize(13.5f);
+        subtitle.setTextColor(Color.parseColor("#E0F2F1"));
+        subtitle.setPadding(0, dp(4), 0, 0);
+        header.addView(subtitle);
 
-        // 1. የመንገዱ ስም ወይም አካባቢ
-        layout.addView(makeLabel("የመንገዱ ስም / አካባቢ *"));
+        root.addView(header);
+
+        // Content container
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(16), dp(16), dp(24));
+
+        // Card 1: የመንገዱ ስም ወይም አካባቢ
         EditText etLocation = makeInput("ለምሳሌ፡- ቦሌ መድኃኔዓለም / ሜክሲኮ", InputType.TYPE_CLASS_TEXT);
-        layout.addView(etLocation);
+        content.addView(makeCard("1. የመንገዱ ስም / አካባቢ *", etLocation));
 
-        // 2. የብልሽቱ ዓይነት
-        layout.addView(makeLabel("የብልሽቱ ዓይነት *"));
+        // Card 2: የብልሽቱ ዓይነት
         Spinner spType = new Spinner(this);
-        String[] damageTypes = {"ጉድጓድ (Pothole)", "ስንጥቅ / መሰንጠቅ", "የጎርፍ ወይም የውሃ ጉዳት", "የመንገድ ጠርዝ / ዳርቻ መጎዳት", "ሌላ"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, damageTypes);
-        spType.setAdapter(adapter);
-        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-        spinnerParams.setMargins(0, dp(4), 0, dp(14));
-        spType.setLayoutParams(spinnerParams);
-        layout.addView(spType);
+        String[] damageTypes = {
+                "ጉድጓድ (Pothole)",
+                "ስንጥቅ / መሰንጠቅ",
+                "የጎርፍ ወይም የውሃ ጉዳት",
+                "የመንገድ ጠርዝ / ዳርቻ መጎዳት",
+                "ሌላ ብልሽት"
+        };
+        ArrayAdapter<String> typeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, damageTypes);
+        spType.setAdapter(typeAdapter);
+        spType.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
+        spType.setPadding(dp(10), dp(6), dp(10), dp(6));
+        content.addView(makeCard("2. የብልሽቱ ዓይነት *", spType));
+        // Card 3: የብልሽቱ ሁኔታ + የቀለም ማሳያ
+        LinearLayout severityBox = new LinearLayout(this);
+        severityBox.setOrientation(LinearLayout.VERTICAL);
 
-        // 3. የብልሽቱ መጠን / አስቸኳይነት
-        layout.addView(makeLabel("የብልሽቱ ሁኔታ / አስቸኳይነት *"));
         Spinner spSeverity = new Spinner(this);
-        String[] severities = {"መካከለኛ", "ከፍተኛ (ለተሽከርካሪ አደገኛ)", "አስቸኳይ ጥገና የሚያስፈልገው"};
+        String[] severities = {
+                "መካከለኛ",
+                "ከፍተኛ (ለተሽከርካሪ አደገኛ)",
+                "አስቸኳይ ጥገና የሚያስፈልገው"
+        };
         ArrayAdapter<String> sevAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, severities);
         spSeverity.setAdapter(sevAdapter);
-        spSeverity.setLayoutParams(spinnerParams);
-        layout.addView(spSeverity);
+        spSeverity.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
+        spSeverity.setPadding(dp(10), dp(6), dp(10), dp(6));
+        severityBox.addView(spSeverity);
 
-        // 4. ተጨማሪ ማብራሪያ
-        layout.addView(makeLabel("ተጨማሪ ማብራሪያ"));
+        TextView tvSeverityTag = new TextView(this);
+        tvSeverityTag.setTextSize(12.5f);
+        tvSeverityTag.setTypeface(null, Typeface.BOLD);
+        tvSeverityTag.setGravity(Gravity.CENTER);
+        tvSeverityTag.setPadding(dp(10), dp(6), dp(10), dp(6));
+        LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tagParams.setMargins(0, dp(10), 0, 0);
+        tvSeverityTag.setLayoutParams(tagParams);
+        severityBox.addView(tvSeverityTag);
+
+        spSeverity.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (position == 2) {
+                    tvSeverityTag.setText("ደረጃ፡ አስቸኳይ");
+                    tvSeverityTag.setTextColor(Color.parseColor("#991B1B"));
+                    tvSeverityTag.setBackground(makeFieldBox("#FEE2E2", "#F87171", 20));
+                } else if (position == 1) {
+                    tvSeverityTag.setText("ደረጃ፡ ከፍተኛ");
+                    tvSeverityTag.setTextColor(Color.parseColor("#9A3412"));
+                    tvSeverityTag.setBackground(makeFieldBox("#FFEDD5", "#FB923C", 20));
+                } else {
+                    tvSeverityTag.setText("ደረጃ፡ መካከለኛ");
+                    tvSeverityTag.setTextColor(Color.parseColor("#004D40"));
+                    tvSeverityTag.setBackground(makeFieldBox("#CCFBF1", "#2DD4BF", 20));
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+
+        content.addView(makeCard("3. የብልሽቱ ሁኔታ / አስቸኳይነት *", severityBox));
+
+        // Card 4: ተጨማሪ ማብራሪያ
         EditText etNotes = makeInput("ስለ ብልሽቱ አጭር መግለጫ ያስገቡ...", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         etNotes.setMinLines(3);
-        layout.addView(etNotes);
+        etNotes.setGravity(Gravity.TOP | Gravity.START);
+        content.addView(makeCard("4. ተጨማሪ ማብራሪያ", etNotes));
 
-        // 5. ጠቋሚ ስም / ስልክ (አማራጭ)
-        layout.addView(makeLabel("ጠቋሚ ስም ወይም ስልክ (አማራጭ)"));
+        // Card 5: ጠቋሚ ስም ወይም ስልክ
         EditText etReporter = makeInput("ለምሳሌ፡- 09...", InputType.TYPE_CLASS_PHONE);
-        layout.addView(etReporter);
+        content.addView(makeCard("5. ጠቋሚ ስም ወይም ስልክ (አማራጭ)", etReporter));
 
-        // የማስገቢያ ቁልፍ
+        // Submit Button
         Button btnSubmit = new Button(this);
         btnSubmit.setText("ጥቆማ አስገባ");
-        btnSubmit.setBackgroundColor(Color.parseColor("#1A237E"));
         btnSubmit.setTextColor(Color.WHITE);
         btnSubmit.setTextSize(16f);
+        btnSubmit.setTypeface(null, Typeface.BOLD);
+        btnSubmit.setBackground(makeFieldBox(PRIMARY_ACCENT, PRIMARY_DARK, 12));
         LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
-        btnParams.setMargins(0, dp(8), 0, dp(16));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
+        btnParams.setMargins(0, dp(4), 0, dp(16));
         btnSubmit.setLayoutParams(btnParams);
-        layout.addView(btnSubmit);
-        // የተመዘገበውን ጥቆማ ማሳያ ሳጥን
+        content.addView(btnSubmit);
+
+        // Result Summary Card
         TextView tvResult = new TextView(this);
         tvResult.setTextSize(14f);
-        tvResult.setTextColor(Color.parseColor("#1B5E20"));
-        tvResult.setBackgroundColor(Color.parseColor("#E8F5E9"));
-        tvResult.setPadding(dp(14), dp(14), dp(14), dp(14));
+        tvResult.setTextColor(Color.parseColor("#064E3B"));
+        tvResult.setBackground(makeFieldBox("#D1FAE5", "#34D399", 12));
+        tvResult.setPadding(dp(16), dp(16), dp(16), dp(16));
         tvResult.setVisibility(View.GONE);
-        layout.addView(tvResult);
-
-        btnSubmit.setOnClickListener(v -> {
+        content.addView(tvResult);
+            btnSubmit.setOnClickListener(v -> {
             String location = etLocation.getText().toString().trim();
             if (location.isEmpty()) {
                 etLocation.setError("እባክዎ የመንገዱን ስም ወይም አካባቢ ያስገቡ");
@@ -115,7 +201,7 @@ public class MainActivity extends AppCompatActivity {
             if (notes.isEmpty()) notes = "ምንም ማብራሪያ አልተሰጠም";
             if (reporter.isEmpty()) reporter = "አልተጠቀሰም";
 
-            String summary = "ጥቆማ ተመዝግቧል!\n\n"
+            String summary = "✓ ጥቆማ በሚገባ ተመዝግቧል!\n\n"
                     + "• አካባቢ፡ " + location + "\n"
                     + "• ዓይነት፡ " + type + "\n"
                     + "• ሁኔታ፡ " + severity + "\n"
@@ -129,35 +215,57 @@ public class MainActivity extends AppCompatActivity {
             etNotes.setText("");
             etReporter.setText("");
 
-            Toast.makeText(this, "የመንገድ ብልሽት ጥቆማ በሚገባ ተመዝግቧል", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "የመንገድ ብልሽት ጥቆማ ተመዝግቧል", Toast.LENGTH_SHORT).show();
         });
 
-        scrollView.addView(layout);
+        root.addView(content);
+        scrollView.addView(root);
         setContentView(scrollView);
     }
 
-    private TextView makeLabel(String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextSize(14f);
-        tv.setTextColor(Color.parseColor("#263238"));
-        tv.setPadding(0, dp(4), 0, dp(4));
-        return tv;
+    private LinearLayout makeCard(String labelText, View fieldView) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(makeFieldBox(CARD_WHITE, BORDER_SOFT, 14));
+        card.setPadding(dp(14), dp(12), dp(14), dp(14));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cardParams.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(cardParams);
+
+        TextView label = new TextView(this);
+        label.setText(labelText);
+        label.setTextSize(14f);
+        label.setTypeface(null, Typeface.BOLD);
+        label.setTextColor(Color.parseColor(TEXT_DARK));
+        label.setPadding(0, 0, 0, dp(8));
+        card.addView(label);
+
+        card.addView(fieldView);
+        return card;
     }
 
     private EditText makeInput(String hint, int inputType) {
         EditText et = new EditText(this);
         et.setHint(hint);
         et.setInputType(inputType);
-        et.setTextColor(Color.BLACK);
-        et.setHintTextColor(Color.GRAY);
-        et.setBackgroundColor(Color.WHITE);
+        et.setTextColor(Color.parseColor(TEXT_DARK));
+        et.setHintTextColor(Color.parseColor(TEXT_MUTED));
+        et.setTextSize(14.5f);
+        et.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
         et.setPadding(dp(12), dp(12), dp(12), dp(12));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, 0, dp(12));
         et.setLayoutParams(params);
         return et;
+    }
+
+    private GradientDrawable makeFieldBox(String fillHex, String strokeHex, int radiusDp) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(Color.parseColor(fillHex));
+        gd.setStroke(dp(1), Color.parseColor(strokeHex));
+        gd.setCornerRadius(dp(radiusDp));
+        return gd;
     }
 
     private int dp(int value) {
