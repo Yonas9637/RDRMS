@@ -1,8 +1,13 @@
 package com.aacra.rdrms;
 
+import android.Manifest;
+import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -18,7 +23,10 @@ import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import org.json.JSONObject;
 
@@ -29,10 +37,13 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    // የGoogle Apps Script Web App URL እዚህ ተገብቷል
+    private static final int LOCATION_PERMISSION_REQUEST_CODE = 1001;
+
+    // የGoogle Apps Script Web App URL
     private static final String SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxPrSe4-TJW68aUSh0g-neM7Qu7xCfM1YcEuWcMITz9mNnhc8hY-I2dcpAtRZApMOjd/exec";
 
     // አዲስ የቀለም ንድፍ (Deep Teal & Warm Slate)
@@ -44,6 +55,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String BORDER_SOFT = "#C8D8D5";
     private static final String TEXT_DARK = "#102A27";
     private static final String TEXT_MUTED = "#526B67";
+
+    private TextView tvGpsStatus;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -96,10 +109,10 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(16), dp(16), dp(16), dp(24));
-
         // Card 1: የመንገዱ ስም ወይም አካባቢ
         EditText etLocation = makeInput("ለምሳሌ፡- ቦሌ መድኃኔዓለም / ሜክሲኮ", InputType.TYPE_CLASS_TEXT);
         content.addView(makeCard("1. የመንገዱ ስም / አካባቢ *", etLocation));
+
         // Card 2: የብልሽቱ ዓይነት
         Spinner spType = new Spinner(this);
         String[] damageTypes = {
@@ -176,6 +189,13 @@ public class MainActivity extends AppCompatActivity {
         // Card 5: ጠቋሚ ስም ወይም ስልክ
         EditText etReporter = makeInput("ለምሳሌ፡- 09...", InputType.TYPE_CLASS_PHONE);
         content.addView(makeCard("5. ጠቋሚ ስም ወይም ስልክ (አማራጭ)", etReporter));
+        // Card 6: የGPS መጋጠሚያ ሁኔታ
+        tvGpsStatus = new TextView(this);
+        tvGpsStatus.setTextSize(13.5f);
+        tvGpsStatus.setTextColor(Color.parseColor(TEXT_DARK));
+        tvGpsStatus.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
+        tvGpsStatus.setPadding(dp(12), dp(12), dp(12), dp(12));
+        content.addView(makeCard("6. GPS / መጋጠሚያ (ራስ-ሰር)", tvGpsStatus));
 
         // Submit Button
         Button btnSubmit = new Button(this);
@@ -216,6 +236,8 @@ public class MainActivity extends AppCompatActivity {
             String severity = spSeverity.getSelectedItem().toString();
             String notesRaw = etNotes.getText().toString().trim();
             String reporterRaw = etReporter.getText().toString().trim();
+            String coordinates = fetchCurrentCoordinates();
+            tvGpsStatus.setText(coordinates);
 
             String notesDisplay = notesRaw.isEmpty() ? "ምንም ማብራሪያ አልተሰጠም" : notesRaw;
             String reporterDisplay = reporterRaw.isEmpty() ? "አልተጠቀሰም" : reporterRaw;
@@ -225,7 +247,8 @@ public class MainActivity extends AppCompatActivity {
                     + "• ዓይነት፡ " + type + "\n"
                     + "• ሁኔታ፡ " + severity + "\n"
                     + "• ማብራሪያ፡ " + notesDisplay + "\n"
-                    + "• ጠቋሚ፡ " + reporterDisplay;
+                    + "• ጠቋሚ፡ " + reporterDisplay + "\n"
+                    + "• GPS፡ " + coordinates;
 
             btnSubmit.setEnabled(false);
             btnSubmit.setText("እየተላከ ነው...");
@@ -235,6 +258,7 @@ public class MainActivity extends AppCompatActivity {
                     type,
                     severity,
                     notesDisplay,
+                    coordinates,
                     reporterDisplay,
                     () -> runOnUiThread(() -> {
                         btnSubmit.setEnabled(true);
@@ -256,10 +280,75 @@ public class MainActivity extends AppCompatActivity {
                     })
             );
         });
-
         root.addView(content);
         scrollView.addView(root);
         setContentView(scrollView);
+
+        ensureLocationPermissionAndRefresh();
+    }
+
+    private void ensureLocationPermissionAndRefresh() {
+        boolean fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+
+        if (!fineGranted && !coarseGranted) {
+            tvGpsStatus.setText("የLocation ፈቃድ በመጠበቅ ላይ...");
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                    LOCATION_PERMISSION_REQUEST_CODE
+            );
+        } else {
+            tvGpsStatus.setText(fetchCurrentCoordinates());
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+            if (tvGpsStatus != null) {
+                tvGpsStatus.setText(fetchCurrentCoordinates());
+            }
+        }
+    }
+
+    private String fetchCurrentCoordinates() {
+        boolean fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+
+        if (!fineGranted && !coarseGranted) {
+            return "ፈቃድ አልተሰጠም";
+        }
+
+        try {
+            LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            if (locationManager == null) {
+                return "GPS አልተገኘም";
+            }
+
+            Location bestLocation = null;
+            for (String provider : locationManager.getProviders(true)) {
+                Location l = locationManager.getLastKnownLocation(provider);
+                if (l == null) continue;
+                if (bestLocation == null || l.getAccuracy() < bestLocation.getAccuracy()) {
+                    bestLocation = l;
+                }
+            }
+
+            if (bestLocation != null) {
+                return String.format(Locale.US, "%.6f, %.6f", bestLocation.getLatitude(), bestLocation.getLongitude());
+            }
+            return "GPS አልተገኘም (Location ያብሩ)";
+        } catch (SecurityException e) {
+            return "ፈቃድ አልተሰጠም";
+        } catch (Exception e) {
+            return "GPS አልተገኘም";
+        }
     }
 
     private interface OnSuccessCallback {
@@ -275,11 +364,12 @@ public class MainActivity extends AppCompatActivity {
             String issueType,
             String severity,
             String description,
+            String coordinates,
             String reporter,
             OnSuccessCallback onSuccess,
             OnErrorCallback onError
     ) {
-            new Thread(() -> {
+        new Thread(() -> {
             HttpURLConnection conn = null;
             try {
                 URL url = new URL(SHEET_WEB_APP_URL.trim());
@@ -290,13 +380,12 @@ public class MainActivity extends AppCompatActivity {
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(20000);
                 conn.setReadTimeout(20000);
-
                 JSONObject payload = new JSONObject();
                 payload.put("road_name", roadName);
                 payload.put("issue_type", issueType);
                 payload.put("severity", severity);
                 payload.put("description", description);
-                payload.put("coordinates", "");
+                payload.put("coordinates", coordinates);
                 payload.put("reporter", reporter);
 
                 try (OutputStream os = conn.getOutputStream()) {
