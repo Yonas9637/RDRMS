@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.DatePickerDialog;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -12,6 +13,7 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -19,11 +21,14 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -32,6 +37,7 @@ import androidx.core.content.ContextCompat;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -43,7 +49,7 @@ import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final int LOCATION_PERMISSION_REQUEST_CODE = 1001;
+    private static final int PERMISSIONS_REQUEST_CODE = 1001;
 
     private static final String SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxPrSe4-TJW68aUSh0g-neM7Qu7xCfM1YcEuWcMITz9mNnhc8hY-I2dcpAtRZApMOjd/exec";
 
@@ -59,7 +65,43 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout formContainer;
     private Button tabDamage, tabPatrol, tabFuel;
     private TextView tvBadge, tvTitle, tvSubtitle;
-    private int activeTab = 0; // 0 = Damage, 1 = Patrol, 2 = Fuel
+    private int activeTab = 0;
+
+    // Patrol photo state
+    private int currentPhotoTarget = 1; // 1 = violation photo, 2 = corrective photo
+    private String violationPhotoBase64 = "";
+    private String correctivePhotoBase64 = "";
+    private ImageView ivViolationPreview;
+    private TextView tvViolationStatus;
+    private ImageView ivCorrectivePreview;
+    private TextView tvCorrectiveStatus;
+
+    private final ActivityResultLauncher<Void> takePhotoLauncher =
+            registerForActivityResult(new ActivityResultContracts.TakePicturePreview(), bitmap -> {
+                if (bitmap != null) {
+                    Bitmap resized = resizeBitmap(bitmap, 1024);
+                    String base64 = bitmapToBase64(resized, 75);
+                    if (currentPhotoTarget == 1) {
+                        violationPhotoBase64 = base64;
+                        if (ivViolationPreview != null) {
+                            ivViolationPreview.setImageBitmap(resized);
+                            ivViolationPreview.setVisibility(View.VISIBLE);
+                        }
+                        if (tvViolationStatus != null) {
+                            tvViolationStatus.setText("✓ የጥፋቱ ፎቶ ተነስቷል");
+                        }
+                    } else {
+                        correctivePhotoBase64 = base64;
+                        if (ivCorrectivePreview != null) {
+                            ivCorrectivePreview.setImageBitmap(resized);
+                            ivCorrectivePreview.setVisibility(View.VISIBLE);
+                        }
+                        if (tvCorrectiveStatus != null) {
+                            tvCorrectiveStatus.setText("✓ የማስተካከያው ፎቶ ተነስቷል");
+                        }
+                    }
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,7 +119,6 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        // Header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setBackgroundColor(Color.parseColor(PRIMARY_DARK));
@@ -104,11 +145,11 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(header);
 
-        // Navigation Tabs (3 Modules)
         LinearLayout tabBar = new LinearLayout(this);
         tabBar.setOrientation(LinearLayout.HORIZONTAL);
         tabBar.setBackgroundColor(Color.parseColor("#D8E6E3"));
         tabBar.setPadding(dp(10), dp(10), dp(10), dp(10));
+
         tabDamage = makeTabButton("የመንገድ ብልሽት");
         tabPatrol = makeTabButton("ፓትሮልና ክትትል");
         tabFuel = makeTabButton("የነዳጅ ክትትል");
@@ -130,7 +171,7 @@ public class MainActivity extends AppCompatActivity {
         scrollView.addView(root);
         setContentView(scrollView);
 
-        ensureLocationPermission();
+        ensureAppPermissions();
         switchTab(0);
     }
 
@@ -164,7 +205,6 @@ public class MainActivity extends AppCompatActivity {
         activeTab = tabIndex;
         updateTabStyles();
         formContainer.removeAllViews();
-
         if (tabIndex == 0) {
             tvBadge.setText("RDRMS • ROAD DAMAGE REPORTING");
             tvTitle.setText("የመንገድ ብልሽት ጥቆማ ፎርም");
@@ -248,7 +288,6 @@ public class MainActivity extends AppCompatActivity {
 
         TextView tvGps = makeGpsBox();
         formContainer.addView(makeCard("6. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
-
         TextView tvResult = makeResultBox();
         Button btnSubmit = makeSubmitButton("ጥቆማ አስገባ");
         formContainer.addView(btnSubmit);
@@ -287,7 +326,8 @@ public class MainActivity extends AppCompatActivity {
                     + "• ማብራሪያ፡ " + notesDisplay + "\n"
                     + "• ጠቋሚ፡ " + reporterDisplay + "\n"
                     + "• GPS፡ " + coordinates;
-                    submitPayload(payload, summary, btnSubmit, "ጥቆማ አስገባ", tvResult, () -> {
+
+            submitPayload(payload, summary, btnSubmit, "ጥቆማ አስገባ", tvResult, () -> {
                 etLocation.setText("");
                 etNotes.setText("");
                 etReporter.setText("");
@@ -297,6 +337,9 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== 2. PATROL FORM ====================
     private void buildPatrolForm() {
+        violationPhotoBase64 = "";
+        correctivePhotoBase64 = "";
+
         EditText etExpertName = makeInput("የባለሙያ ሙሉ ስም ያስገቡ", InputType.TYPE_CLASS_TEXT);
         formContainer.addView(makeCard("1. የባለሙያ ስም *", etExpertName));
 
@@ -330,31 +373,87 @@ public class MainActivity extends AppCompatActivity {
 
         EditText etViolationType = makeInput("በመንገዱ ላይ የደረሰ የጥፋት ዓይነት", InputType.TYPE_CLASS_TEXT);
         formContainer.addView(makeCard("9. በመንገዱ ላይ የደረሰ የጥፋት ዓይነት", etViolationType));
+        // Photo 1: Violation Photo
+        ivViolationPreview = new ImageView(this);
+        ivViolationPreview.setAdjustViewBounds(true);
+        ivViolationPreview.setMaxHeight(dp(200));
+        ivViolationPreview.setVisibility(View.GONE);
+        LinearLayout.LayoutParams prevParams1 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        prevParams1.setMargins(0, dp(8), 0, 0);
+        ivViolationPreview.setLayoutParams(prevParams1);
+
+        tvViolationStatus = new TextView(this);
+        tvViolationStatus.setText("ምንም ፎቶ አልተነሳም (አማራጭ)");
+        tvViolationStatus.setTextSize(12.5f);
+        tvViolationStatus.setTextColor(Color.parseColor(TEXT_MUTED));
+        tvViolationStatus.setPadding(0, dp(6), 0, 0);
+
+        Button btnViolationPhoto = makeSecondaryButton("📷 የጥፋቱን ፎቶ አንሳ");
+        btnViolationPhoto.setOnClickListener(v -> {
+            currentPhotoTarget = 1;
+            takePhotoLauncher.launch(null);
+        });
+
+        LinearLayout violationPhotoBox = new LinearLayout(this);
+        violationPhotoBox.setOrientation(LinearLayout.VERTICAL);
+        violationPhotoBox.addView(btnViolationPhoto);
+        violationPhotoBox.addView(tvViolationStatus);
+        violationPhotoBox.addView(ivViolationPreview);
+        formContainer.addView(makeCard("10. የጥፋቱ ዓይነት በፎቶ", violationPhotoBox));
 
         Spinner spDamageLevel = makeSpinner(new String[]{"ከፍተኛ", "መጠነኛ ያለበት", "ዝቅተኛ"});
-        formContainer.addView(makeCard("10. የመንገዱ ጉዳት መጠን", spDamageLevel));
+        formContainer.addView(makeCard("11. የመንገዱ ጉዳት መጠን", spDamageLevel));
 
         Spinner spActionTaken = makeSpinner(new String[]{
                 "የቃል ማስጠንቀቂያ ተሰጥቷል",
                 "የጽሑፍ ማስጠንቀቂያ ተሰጥቷል"
         });
-        formContainer.addView(makeCard("11. የተወሰደ እርምጃ", spActionTaken));
+        formContainer.addView(makeCard("12. የተወሰደ እርምጃ", spActionTaken));
 
         Spinner spCorrective = makeSpinner(new String[]{
                 "ጉዳት ያደረሰው አካል የጉዳት ካሳ ተጠይቋል",
                 "ንብረቱ እንዲወረስ ተደርጓል"
         });
-        formContainer.addView(makeCard("12. በተሰጠው ማስጠንቀቂያ መሠረት የተወሰደ ማስተካከያ", spCorrective));
+        formContainer.addView(makeCard("13. በተሰጠው ማስጠንቀቂያ መሠረት የተወሰደ ማስተካከያ", spCorrective));
+
+        // Photo 2: Corrective Action Photo
+        ivCorrectivePreview = new ImageView(this);
+        ivCorrectivePreview.setAdjustViewBounds(true);
+        ivCorrectivePreview.setMaxHeight(dp(200));
+        ivCorrectivePreview.setVisibility(View.GONE);
+        LinearLayout.LayoutParams prevParams2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        prevParams2.setMargins(0, dp(8), 0, 0);
+        ivCorrectivePreview.setLayoutParams(prevParams2);
+
+        tvCorrectiveStatus = new TextView(this);
+        tvCorrectiveStatus.setText("ምንም ፎቶ አልተነሳም (አማራጭ)");
+        tvCorrectiveStatus.setTextSize(12.5f);
+        tvCorrectiveStatus.setTextColor(Color.parseColor(TEXT_MUTED));
+        tvCorrectiveStatus.setPadding(0, dp(6), 0, 0);
+
+        Button btnCorrectivePhoto = makeSecondaryButton("📷 የተወሰደ ማስተካከያ በፎቶ አንሳ");
+        btnCorrectivePhoto.setOnClickListener(v -> {
+            currentPhotoTarget = 2;
+            takePhotoLauncher.launch(null);
+        });
+
+        LinearLayout correctivePhotoBox = new LinearLayout(this);
+        correctivePhotoBox.setOrientation(LinearLayout.VERTICAL);
+        correctivePhotoBox.addView(btnCorrectivePhoto);
+        correctivePhotoBox.addView(tvCorrectiveStatus);
+        correctivePhotoBox.addView(ivCorrectivePreview);
+        formContainer.addView(makeCard("14. የተወሰደ ማስተካከያ በፎቶ", correctivePhotoBox));
 
         EditText etNoWarning = makeInput("ማስጠንቀቂያ ካልተሰጠ ምክንያቱን ያስገቡ", InputType.TYPE_CLASS_TEXT);
-        formContainer.addView(makeCard("13. ማስጠንቀቂያ ካልተሰጠ ያልተሰጠበት ምክንያት", etNoWarning));
+        formContainer.addView(makeCard("15. ማስጠንቀቂያ ካልተሰጠ ያልተሰጠበት ምክንያት", etNoWarning));
 
         EditText etDistance = makeInput("ለምሳሌ፡- 5.2 km", InputType.TYPE_CLASS_TEXT);
-        formContainer.addView(makeCard("14. የተሸፈነ ርቀት (Distance Coverage)", etDistance));
+        formContainer.addView(makeCard("16. የተሸፈነ ርቀት (Distance Coverage)", etDistance));
 
         TextView tvGps = makeGpsBox();
-        formContainer.addView(makeCard("15. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
-
+        formContainer.addView(makeCard("17. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
         TextView tvResult = makeResultBox();
         Button btnSubmit = makeSubmitButton("የፓትሮል ሪፖርት አስገባ");
         formContainer.addView(btnSubmit);
@@ -376,6 +475,7 @@ public class MainActivity extends AppCompatActivity {
 
             String coordinates = fetchCurrentCoordinates();
             tvGps.setText(coordinates);
+
             String patrolDate = etPatrolDate.getText().toString().trim();
             String team = spTeam.getSelectedItem().toString();
             String subCity = spSubCity.getSelectedItem().toString();
@@ -389,6 +489,7 @@ public class MainActivity extends AppCompatActivity {
             String noWarning = etNoWarning.getText().toString().trim();
             String distance = etDistance.getText().toString().trim();
 
+            long nowMs = System.currentTimeMillis();
             JSONObject payload = new JSONObject();
             try {
                 payload.put("form_type", "patrol");
@@ -401,21 +502,26 @@ public class MainActivity extends AppCompatActivity {
                 payload.put("road_number", roadNo);
                 payload.put("specific_location", specificLoc);
                 payload.put("violation_type", violationType);
+                payload.put("violation_photo_base64", violationPhotoBase64);
+                payload.put("violation_photo_name", "violation_" + nowMs + ".jpg");
                 payload.put("damage_level", damageLevel);
                 payload.put("action_taken", actionTaken);
                 payload.put("corrective_action", corrective);
+                payload.put("corrective_photo_base64", correctivePhotoBase64);
+                payload.put("corrective_photo_name", "corrective_" + nowMs + ".jpg");
                 payload.put("no_warning_reason", noWarning);
                 payload.put("distance_coverage", distance);
                 payload.put("coordinates", coordinates);
             } catch (Exception ignored) {}
 
+            int photoCount = (violationPhotoBase64.isEmpty() ? 0 : 1) + (correctivePhotoBase64.isEmpty() ? 0 : 1);
             String summary = "✓ የፓትሮል ሪፖርት ተመዝግቧል!\n\n"
                     + "• ባለሙያ፡ " + expertName + "\n"
                     + "• ቀን፡ " + patrolDate + "\n"
                     + "• ቡድን፡ " + team + "\n"
                     + "• ክ/ከተማ፡ " + subCity + " | ወረዳ፡ " + woreda + "\n"
                     + "• ልዩ ቦታ፡ " + specificLoc + "\n"
-                    + "• ጉዳት መጠን፡ " + damageLevel + "\n"
+                    + "• የተያያዙ ፎቶዎች፡ " + photoCount + "\n"
                     + "• GPS፡ " + coordinates;
 
             submitPayload(payload, summary, btnSubmit, "የፓትሮል ሪፖርት አስገባ", tvResult, () -> {
@@ -426,6 +532,12 @@ public class MainActivity extends AppCompatActivity {
                 etViolationType.setText("");
                 etNoWarning.setText("");
                 etDistance.setText("");
+                violationPhotoBase64 = "";
+                correctivePhotoBase64 = "";
+                ivViolationPreview.setVisibility(View.GONE);
+                ivCorrectivePreview.setVisibility(View.GONE);
+                tvViolationStatus.setText("ምንም ፎቶ አልተነሳም (አማራጭ)");
+                tvCorrectiveStatus.setText("ምንም ፎቶ አልተነሳም (አማራጭ)");
             });
         });
     }
@@ -453,6 +565,7 @@ public class MainActivity extends AppCompatActivity {
 
         EditText etOdometer = makeInput("የኪሎሜትር (KM) ወይም የሰዓት (Hour Meter) ንባብ", InputType.TYPE_CLASS_TEXT);
         formContainer.addView(makeCard("5. የኪሎሜትር / ሰዓት ንባብ (Odometer / Hour)", etOdometer));
+
         EditText etStation = makeInput("የመሥሪያ ቤት ዴፖ ወይም የማደያ ስም", InputType.TYPE_CLASS_TEXT);
         formContainer.addView(makeCard("6. የነዳጅ ማደያ / ዴፖ", etStation));
 
@@ -497,7 +610,6 @@ public class MainActivity extends AppCompatActivity {
 
             String coordinates = fetchCurrentCoordinates();
             tvGps.setText(coordinates);
-
             String vehicleType = spVehicleType.getSelectedItem().toString();
             String fuelType = spFuelType.getSelectedItem().toString();
             String odometer = etOdometer.getText().toString().trim();
@@ -538,11 +650,29 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    // ==================== IMAGE HELPERS ====================
+    private Bitmap resizeBitmap(Bitmap src, int maxDim) {
+        int w = src.getWidth();
+        int h = src.getHeight();
+        if (w <= maxDim && h <= maxDim) return src;
+        float scale = Math.min((float) maxDim / w, (float) maxDim / h);
+        int newW = Math.round(w * scale);
+        int newH = Math.round(h * scale);
+        return Bitmap.createScaledBitmap(src, newW, newH, true);
+    }
+
+    private String bitmapToBase64(Bitmap bitmap, int quality) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos);
+        return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+    }
+
     // ==================== SUBMIT & NETWORK ====================
     private interface OnClearFields {
         void clear();
     }
-            private void submitPayload(
+
+    private void submitPayload(
             JSONObject payload,
             String summaryText,
             Button btnSubmit,
@@ -567,15 +697,14 @@ public class MainActivity extends AppCompatActivity {
                 conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
                 conn.setInstanceFollowRedirects(true);
                 conn.setDoOutput(true);
-                conn.setConnectTimeout(20000);
-                conn.setReadTimeout(20000);
+                conn.setConnectTimeout(30000);
+                conn.setReadTimeout(30000);
 
                 try (OutputStream os = conn.getOutputStream()) {
                     byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
                     os.write(input, 0, input.length);
                     os.flush();
                 }
-
                 int code = conn.getResponseCode();
                 InputStream stream = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
                 StringBuilder sb = new StringBuilder();
@@ -596,7 +725,7 @@ public class MainActivity extends AppCompatActivity {
                         tvResult.setText(summaryText);
                         tvResult.setVisibility(View.VISIBLE);
                         onClear.clear();
-                        Toast.makeText(this, "መረጃው ወደ Google Sheet ተልኳል", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "መረጃውና ፎቶው በትክክል ተልኳል", Toast.LENGTH_SHORT).show();
                     } else {
                         Toast.makeText(this, "መላክ አልተሳካም (HTTP " + code + ")", Toast.LENGTH_LONG).show();
                     }
@@ -615,21 +744,22 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ==================== GPS & PERMISSIONS ====================
-    private void ensureLocationPermission() {
+    private void ensureAppPermissions() {
         boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
         boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
         if (!fine && !coarse) {
             ActivityCompat.requestPermissions(
                     this,
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-                    LOCATION_PERMISSION_REQUEST_CODE
+                    PERMISSIONS_REQUEST_CODE
             );
         }
     }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+        if (requestCode == PERMISSIONS_REQUEST_CODE) {
             switchTab(activeTab);
         }
     }
@@ -658,7 +788,6 @@ public class MainActivity extends AppCompatActivity {
             return "GPS አልተገኘም";
         }
     }
-
     // ==================== UI HELPERS ====================
     private EditText makeDatePickerInput() {
         EditText et = makeInput("ቀን ይምረጡ (mm/dd/yyyy)", InputType.TYPE_CLASS_TEXT);
@@ -694,6 +823,20 @@ public class MainActivity extends AppCompatActivity {
         return tv;
     }
 
+    private Button makeSecondaryButton(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.parseColor(PRIMARY_DARK));
+        btn.setTextSize(13.5f);
+        btn.setTypeface(null, Typeface.BOLD);
+        btn.setAllCaps(false);
+        btn.setBackground(makeFieldBox("#E0F2F1", PRIMARY_ACCENT, 10));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        btn.setLayoutParams(params);
+        return btn;
+    }
+
     private Button makeSubmitButton(String text) {
         Button btn = new Button(this);
         btn.setText(text);
@@ -717,7 +860,8 @@ public class MainActivity extends AppCompatActivity {
         tv.setVisibility(View.GONE);
         return tv;
     }
-        private LinearLayout makeCard(String labelText, View fieldView) {
+
+    private LinearLayout makeCard(String labelText, View fieldView) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(makeFieldBox(CARD_WHITE, BORDER_SOFT, 14));
@@ -737,8 +881,7 @@ public class MainActivity extends AppCompatActivity {
         card.addView(fieldView);
         return card;
     }
-
-    private EditText makeInput(String hint, int inputType) {
+        private EditText makeInput(String hint, int inputType) {
         EditText et = new EditText(this);
         et.setHint(hint);
         et.setInputType(inputType);
