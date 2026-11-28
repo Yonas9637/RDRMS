@@ -78,28 +78,34 @@ public class MainActivity extends AppCompatActivity {
 
     private final ActivityResultLauncher<Void> takePhotoLauncher =
             registerForActivityResult(new ActivityResultContracts.TakePicturePreview(), bitmap -> {
-                if (bitmap != null) {
-                    Bitmap resized = resizeBitmap(bitmap, 1024);
-                    String base64 = bitmapToBase64(resized, 75);
-                    if (currentPhotoTarget == 1) {
-                        violationPhotoBase64 = base64;
-                        if (ivViolationPreview != null) {
-                            ivViolationPreview.setImageBitmap(resized);
-                            ivViolationPreview.setVisibility(View.VISIBLE);
-                        }
-                        if (tvViolationStatus != null) {
-                            tvViolationStatus.setText("✓ የጥፋቱ ፎቶ ተነስቷል");
+                try {
+                    if (bitmap != null) {
+                        Bitmap resized = resizeBitmap(bitmap, 1024);
+                        String base64 = bitmapToBase64(resized, 75);
+                        if (currentPhotoTarget == 1) {
+                            violationPhotoBase64 = base64;
+                            if (ivViolationPreview != null) {
+                                ivViolationPreview.setImageBitmap(resized);
+                                ivViolationPreview.setVisibility(View.VISIBLE);
+                            }
+                            if (tvViolationStatus != null) {
+                                tvViolationStatus.setText("✓ የጥፋቱ ፎቶ ተነስቷል");
+                            }
+                        } else {
+                            correctivePhotoBase64 = base64;
+                               if (ivCorrectivePreview != null) {
+                                ivCorrectivePreview.setImageBitmap(resized);
+                                ivCorrectivePreview.setVisibility(View.VISIBLE);
+                            }
+                            if (tvCorrectiveStatus != null) {
+                                tvCorrectiveStatus.setText("✓ የማስተካከያው ፎቶ ተነስቷል");
+                            }
                         }
                     } else {
-                        correctivePhotoBase64 = base64;
-                        if (ivCorrectivePreview != null) {
-                            ivCorrectivePreview.setImageBitmap(resized);
-                            ivCorrectivePreview.setVisibility(View.VISIBLE);
-                        }
-                        if (tvCorrectiveStatus != null) {
-                            tvCorrectiveStatus.setText("✓ የማስተካከያው ፎቶ ተነስቷል");
-                        }
+                        Toast.makeText(this, "ፎቶ አልተነሳም", Toast.LENGTH_SHORT).show();
                     }
+                } catch (Exception e) {
+                    Toast.makeText(this, "ፎቶ ማስቀመጥ ላይ ችግር ተፈጠረ", Toast.LENGTH_SHORT).show();
                 }
             });
 
@@ -175,7 +181,20 @@ public class MainActivity extends AppCompatActivity {
         switchTab(0);
     }
 
-    private Button makeTabButton(String text) {
+    private void openCameraForTarget(int target) {
+        try {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                currentPhotoTarget = target;
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, PERMISSIONS_REQUEST_CODE);
+                return;
+            }
+            currentPhotoTarget = target;
+            takePhotoLauncher.launch(null);
+        } catch (Exception e) {
+            Toast.makeText(this, "ካሜራ መክፈት አልተቻለም", Toast.LENGTH_SHORT).show();
+        }
+    }
+        private Button makeTabButton(String text) {
         Button btn = new Button(this);
         btn.setText(text);
         btn.setTextSize(11.5f);
@@ -205,6 +224,7 @@ public class MainActivity extends AppCompatActivity {
         activeTab = tabIndex;
         updateTabStyles();
         formContainer.removeAllViews();
+
         if (tabIndex == 0) {
             tvBadge.setText("RDRMS • ROAD DAMAGE REPORTING");
             tvTitle.setText("የመንገድ ብልሽት ጥቆማ ፎርም");
@@ -264,7 +284,7 @@ public class MainActivity extends AppCompatActivity {
                     tvSeverityTag.setText("ደረጃ፡ አስቸኳይ");
                     tvSeverityTag.setTextColor(Color.parseColor("#991B1B"));
                     tvSeverityTag.setBackground(makeFieldBox("#FEE2E2", "#F87171", 20));
-                } else if (position == 1) {
+                    } else if (position == 1) {
                     tvSeverityTag.setText("ደረጃ፡ ከፍተኛ");
                     tvSeverityTag.setTextColor(Color.parseColor("#9A3412"));
                     tvSeverityTag.setBackground(makeFieldBox("#FFEDD5", "#FB923C", 20));
@@ -288,6 +308,7 @@ public class MainActivity extends AppCompatActivity {
 
         TextView tvGps = makeGpsBox();
         formContainer.addView(makeCard("6. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
+
         TextView tvResult = makeResultBox();
         Button btnSubmit = makeSubmitButton("ጥቆማ አስገባ");
         formContainer.addView(btnSubmit);
@@ -348,7 +369,6 @@ public class MainActivity extends AppCompatActivity {
 
         Spinner spTeam = makeSpinner(new String[]{"ቡድን 1", "ቡድን 2", "ቡድን 3", "ቡድን 4"});
         formContainer.addView(makeCard("3. ፓትሮል ያደረገው ቡድን *", spTeam));
-
         Spinner spSubCity = makeSpinner(new String[]{
                 "1. አዲስ ከተማ ክፍለ ከተማ",
                 "2. ኮልፌ ቀራኒዮ ክፍለ ከተማ"
@@ -373,6 +393,7 @@ public class MainActivity extends AppCompatActivity {
 
         EditText etViolationType = makeInput("በመንገዱ ላይ የደረሰ የጥፋት ዓይነት", InputType.TYPE_CLASS_TEXT);
         formContainer.addView(makeCard("9. በመንገዱ ላይ የደረሰ የጥፋት ዓይነት", etViolationType));
+
         // Photo 1: Violation Photo
         ivViolationPreview = new ImageView(this);
         ivViolationPreview.setAdjustViewBounds(true);
@@ -390,10 +411,7 @@ public class MainActivity extends AppCompatActivity {
         tvViolationStatus.setPadding(0, dp(6), 0, 0);
 
         Button btnViolationPhoto = makeSecondaryButton("📷 የጥፋቱን ፎቶ አንሳ");
-        btnViolationPhoto.setOnClickListener(v -> {
-            currentPhotoTarget = 1;
-            takePhotoLauncher.launch(null);
-        });
+        btnViolationPhoto.setOnClickListener(v -> openCameraForTarget(1));
 
         LinearLayout violationPhotoBox = new LinearLayout(this);
         violationPhotoBox.setOrientation(LinearLayout.VERTICAL);
@@ -432,12 +450,8 @@ public class MainActivity extends AppCompatActivity {
         tvCorrectiveStatus.setTextSize(12.5f);
         tvCorrectiveStatus.setTextColor(Color.parseColor(TEXT_MUTED));
         tvCorrectiveStatus.setPadding(0, dp(6), 0, 0);
-
         Button btnCorrectivePhoto = makeSecondaryButton("📷 የተወሰደ ማስተካከያ በፎቶ አንሳ");
-        btnCorrectivePhoto.setOnClickListener(v -> {
-            currentPhotoTarget = 2;
-            takePhotoLauncher.launch(null);
-        });
+        btnCorrectivePhoto.setOnClickListener(v -> openCameraForTarget(2));
 
         LinearLayout correctivePhotoBox = new LinearLayout(this);
         correctivePhotoBox.setOrientation(LinearLayout.VERTICAL);
@@ -454,6 +468,7 @@ public class MainActivity extends AppCompatActivity {
 
         TextView tvGps = makeGpsBox();
         formContainer.addView(makeCard("17. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
+
         TextView tvResult = makeResultBox();
         Button btnSubmit = makeSubmitButton("የፓትሮል ሪፖርት አስገባ");
         formContainer.addView(btnSubmit);
@@ -586,8 +601,7 @@ public class MainActivity extends AppCompatActivity {
         Button btnSubmit = makeSubmitButton("የነዳጅ መረጃ አስገባ");
         formContainer.addView(btnSubmit);
         formContainer.addView(tvResult);
-
-        btnSubmit.setOnClickListener(v -> {
+            btnSubmit.setOnClickListener(v -> {
             String plate = etPlate.getText().toString().trim();
             String liters = etLiters.getText().toString().trim();
             String operator = etOperator.getText().toString().trim();
@@ -610,6 +624,7 @@ public class MainActivity extends AppCompatActivity {
 
             String coordinates = fetchCurrentCoordinates();
             tvGps.setText(coordinates);
+
             String vehicleType = spVehicleType.getSelectedItem().toString();
             String fuelType = spFuelType.getSelectedItem().toString();
             String odometer = etOdometer.getText().toString().trim();
@@ -687,8 +702,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnSubmit.setEnabled(false);
         btnSubmit.setText("እየተላከ ነው...");
-
-        new Thread(() -> {
+            new Thread(() -> {
             HttpURLConnection conn = null;
             try {
                 URL url = new URL(SHEET_WEB_APP_URL.trim());
@@ -705,6 +719,7 @@ public class MainActivity extends AppCompatActivity {
                     os.write(input, 0, input.length);
                     os.flush();
                 }
+
                 int code = conn.getResponseCode();
                 InputStream stream = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
                 StringBuilder sb = new StringBuilder();
@@ -745,14 +760,20 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== GPS & PERMISSIONS ====================
     private void ensureAppPermissions() {
-        boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-        boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-        if (!fine && !coarse) {
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-                    PERMISSIONS_REQUEST_CODE
-            );
+        String[] needed = new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.CAMERA
+        };
+        boolean allGranted = true;
+        for (String perm : needed) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+        if (!allGranted) {
+            ActivityCompat.requestPermissions(this, needed, PERMISSIONS_REQUEST_CODE);
         }
     }
 
@@ -760,11 +781,17 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSIONS_REQUEST_CODE) {
-            switchTab(activeTab);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                    && activeTab == 1) {
+                try {
+                    takePhotoLauncher.launch(null);
+                } catch (Exception ignored) {}
+            } else {
+                switchTab(activeTab);
+            }
         }
     }
-
-    private String fetchCurrentCoordinates() {
+        private String fetchCurrentCoordinates() {
         boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
         boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
         if (!fine && !coarse) return "ፈቃድ አልተሰጠም";
@@ -788,6 +815,7 @@ public class MainActivity extends AppCompatActivity {
             return "GPS አልተገኘም";
         }
     }
+
     // ==================== UI HELPERS ====================
     private EditText makeDatePickerInput() {
         EditText et = makeInput("ቀን ይምረጡ (mm/dd/yyyy)", InputType.TYPE_CLASS_TEXT);
@@ -850,8 +878,7 @@ public class MainActivity extends AppCompatActivity {
         btn.setLayoutParams(params);
         return btn;
     }
-
-    private TextView makeResultBox() {
+        private TextView makeResultBox() {
         TextView tv = new TextView(this);
         tv.setTextSize(13.5f);
         tv.setTextColor(Color.parseColor("#064E3B"));
@@ -881,7 +908,8 @@ public class MainActivity extends AppCompatActivity {
         card.addView(fieldView);
         return card;
     }
-        private EditText makeInput(String hint, int inputType) {
+
+    private EditText makeInput(String hint, int inputType) {
         EditText et = new EditText(this);
         et.setHint(hint);
         et.setInputType(inputType);
