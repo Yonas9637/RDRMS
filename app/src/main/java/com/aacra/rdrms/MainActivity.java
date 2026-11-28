@@ -1,6 +1,7 @@
 package com.aacra.rdrms;
 
 import android.Manifest;
+import android.app.DatePickerDialog;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -37,16 +38,15 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Calendar;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1001;
 
-    // የGoogle Apps Script Web App URL
     private static final String SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxPrSe4-TJW68aUSh0g-neM7Qu7xCfM1YcEuWcMITz9mNnhc8hY-I2dcpAtRZApMOjd/exec";
 
-    // አዲስ የቀለም ንድፍ (Deep Teal & Warm Slate)
     private static final String PRIMARY_DARK = "#004D40";
     private static final String PRIMARY_ACCENT = "#00796B";
     private static final String BG_SOFT = "#E9F0EE";
@@ -56,13 +56,15 @@ public class MainActivity extends AppCompatActivity {
     private static final String TEXT_DARK = "#102A27";
     private static final String TEXT_MUTED = "#526B67";
 
-    private TextView tvGpsStatus;
+    private LinearLayout formContainer;
+    private Button tabDamage, tabPatrol, tabFuel;
+    private TextView tvBadge, tvTitle, tvSubtitle;
+    private int activeTab = 0; // 0 = Damage, 1 = Patrol, 2 = Fuel
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Status bar ቀለምን ከ Header ጋር ማጣጣም
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             Window window = getWindow();
             window.setStatusBarColor(Color.parseColor(PRIMARY_DARK));
@@ -75,73 +77,133 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
 
-        // Top Header Banner
+        // Header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setBackgroundColor(Color.parseColor(PRIMARY_DARK));
-        header.setPadding(dp(20), dp(22), dp(20), dp(22));
+        header.setPadding(dp(20), dp(20), dp(20), dp(20));
 
-        TextView badge = new TextView(this);
-        badge.setText("RDRMS • ROAD DAMAGE REPORTING");
-        badge.setTextSize(11f);
-        badge.setTypeface(null, Typeface.BOLD);
-        badge.setTextColor(Color.parseColor("#A7FFEB"));
-        badge.setPadding(0, 0, 0, dp(6));
-        header.addView(badge);
+        tvBadge = new TextView(this);
+        tvBadge.setTextSize(11f);
+        tvBadge.setTypeface(null, Typeface.BOLD);
+        tvBadge.setTextColor(Color.parseColor("#A7FFEB"));
+        tvBadge.setPadding(0, 0, 0, dp(4));
+        header.addView(tvBadge);
 
-        TextView title = new TextView(this);
-        title.setText("የመንገድ ብልሽት ጥቆማ ፎርም");
-        title.setTextSize(22f);
-        title.setTypeface(null, Typeface.BOLD);
-        title.setTextColor(Color.WHITE);
-        header.addView(title);
+        tvTitle = new TextView(this);
+        tvTitle.setTextSize(20f);
+        tvTitle.setTypeface(null, Typeface.BOLD);
+        tvTitle.setTextColor(Color.WHITE);
+        header.addView(tvTitle);
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("የመንገድ ችግር ሲያጋጥም መረጃውን በትክክል ከታች ይሙሉ");
-        subtitle.setTextSize(13.5f);
-        subtitle.setTextColor(Color.parseColor("#E0F2F1"));
-        subtitle.setPadding(0, dp(4), 0, 0);
-        header.addView(subtitle);
+        tvSubtitle = new TextView(this);
+        tvSubtitle.setTextSize(13f);
+        tvSubtitle.setTextColor(Color.parseColor("#E0F2F1"));
+        tvSubtitle.setPadding(0, dp(4), 0, 0);
+        header.addView(tvSubtitle);
 
         root.addView(header);
 
-        // Content container
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(16), dp(16), dp(16), dp(24));
-        // Card 1: የመንገዱ ስም ወይም አካባቢ
-        EditText etLocation = makeInput("ለምሳሌ፡- ቦሌ መድኃኔዓለም / ሜክሲኮ", InputType.TYPE_CLASS_TEXT);
-        content.addView(makeCard("1. የመንገዱ ስም / አካባቢ *", etLocation));
+        // Navigation Tabs (3 Modules)
+        LinearLayout tabBar = new LinearLayout(this);
+        tabBar.setOrientation(LinearLayout.HORIZONTAL);
+        tabBar.setBackgroundColor(Color.parseColor("#D8E6E3"));
+        tabBar.setPadding(dp(10), dp(10), dp(10), dp(10));
+        tabDamage = makeTabButton("የመንገድ ብልሽት");
+        tabPatrol = makeTabButton("ፓትሮልና ክትትል");
+        tabFuel = makeTabButton("የነዳጅ ክትትል");
 
-        // Card 2: የብልሽቱ ዓይነት
-        Spinner spType = new Spinner(this);
-        String[] damageTypes = {
+        tabBar.addView(tabDamage);
+        tabBar.addView(tabPatrol);
+        tabBar.addView(tabFuel);
+        root.addView(tabBar);
+
+        formContainer = new LinearLayout(this);
+        formContainer.setOrientation(LinearLayout.VERTICAL);
+        formContainer.setPadding(dp(16), dp(14), dp(16), dp(24));
+        root.addView(formContainer);
+
+        tabDamage.setOnClickListener(v -> switchTab(0));
+        tabPatrol.setOnClickListener(v -> switchTab(1));
+        tabFuel.setOnClickListener(v -> switchTab(2));
+
+        scrollView.addView(root);
+        setContentView(scrollView);
+
+        ensureLocationPermission();
+        switchTab(0);
+    }
+
+    private Button makeTabButton(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextSize(11.5f);
+        btn.setTypeface(null, Typeface.BOLD);
+        btn.setAllCaps(false);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, dp(44), 1f);
+        params.setMargins(dp(3), 0, dp(3), 0);
+        btn.setLayoutParams(params);
+        return btn;
+    }
+
+    private void updateTabStyles() {
+        Button[] tabs = {tabDamage, tabPatrol, tabFuel};
+        for (int i = 0; i < tabs.length; i++) {
+            if (i == activeTab) {
+                tabs[i].setBackground(makeFieldBox(PRIMARY_ACCENT, PRIMARY_DARK, 8));
+                tabs[i].setTextColor(Color.WHITE);
+            } else {
+                tabs[i].setBackground(makeFieldBox(CARD_WHITE, BORDER_SOFT, 8));
+                tabs[i].setTextColor(Color.parseColor(TEXT_DARK));
+            }
+        }
+    }
+
+    private void switchTab(int tabIndex) {
+        activeTab = tabIndex;
+        updateTabStyles();
+        formContainer.removeAllViews();
+
+        if (tabIndex == 0) {
+            tvBadge.setText("RDRMS • ROAD DAMAGE REPORTING");
+            tvTitle.setText("የመንገድ ብልሽት ጥቆማ ፎርም");
+            tvSubtitle.setText("የመንገድ ችግር ሲያጋጥም መረጃውን በትክክል ይሙሉ");
+            buildRoadDamageForm();
+        } else if (tabIndex == 1) {
+            tvBadge.setText("WEST ADDIS ABABA • INFRASTRUCTURE PATROL");
+            tvTitle.setText("የመንገድ መሠረተ ልማት ጥበቃና ክትትል ቅጽ");
+            tvSubtitle.setText("የፓትሮልና የክትትል መረጃ በትክክል ይመዝግቡ");
+            buildPatrolForm();
+        } else {
+            tvBadge.setText("RDRMS • HEAVY VEHICLE FUEL LOG");
+            tvTitle.setText("የከባድ መኪና የነዳጅ ክትትል ቅጽ");
+            tvSubtitle.setText("የማሽነሪ/ከባድ መኪና የነዳጅ አሞላልና ንባብ ይመዝግቡ");
+            buildFuelForm();
+        }
+    }
+
+    // ==================== 1. ROAD DAMAGE FORM ====================
+    private void buildRoadDamageForm() {
+        EditText etLocation = makeInput("ለምሳሌ፡- ቦሌ መድኃኔዓለም / ሜክሲኮ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("1. የመንገዱ ስም / አካባቢ *", etLocation));
+
+        Spinner spType = makeSpinner(new String[]{
                 "ጉድጓድ (Pothole)",
                 "ስንጥቅ / መሰንጠቅ",
                 "የጎርፍ ወይም የውሃ ጉዳት",
                 "የመንገድ ጠርዝ / ዳርቻ መጎዳት",
                 "ሌላ ብልሽት"
-        };
-        ArrayAdapter<String> typeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, damageTypes);
-        spType.setAdapter(typeAdapter);
-        spType.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
-        spType.setPadding(dp(10), dp(6), dp(10), dp(6));
-        content.addView(makeCard("2. የብልሽቱ ዓይነት *", spType));
+        });
+        formContainer.addView(makeCard("2. የብልሽቱ ዓይነት *", spType));
 
-        // Card 3: የብልሽቱ ሁኔታ + የቀለም ማሳያ
         LinearLayout severityBox = new LinearLayout(this);
         severityBox.setOrientation(LinearLayout.VERTICAL);
-
-        Spinner spSeverity = new Spinner(this);
-        String[] severities = {
+        Spinner spSeverity = makeSpinner(new String[]{
                 "መካከለኛ",
                 "ከፍተኛ (ለተሽከርካሪ አደገኛ)",
                 "አስቸኳይ ጥገና የሚያስፈልገው"
-        };
-        ArrayAdapter<String> sevAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, severities);
-        spSeverity.setAdapter(sevAdapter);
-        spSeverity.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
-        spSeverity.setPadding(dp(10), dp(6), dp(10), dp(6));
+        });
         severityBox.addView(spSeverity);
 
         TextView tvSeverityTag = new TextView(this);
@@ -172,52 +234,25 @@ public class MainActivity extends AppCompatActivity {
                     tvSeverityTag.setBackground(makeFieldBox("#CCFBF1", "#2DD4BF", 20));
                 }
             }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
         });
+        formContainer.addView(makeCard("3. የብልሽቱ ሁኔታ / አስቸኳይነት *", severityBox));
 
-        content.addView(makeCard("3. የብልሽቱ ሁኔታ / አስቸኳይነት *", severityBox));
-
-        // Card 4: ተጨማሪ ማብራሪያ
         EditText etNotes = makeInput("ስለ ብልሽቱ አጭር መግለጫ ያስገቡ...", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         etNotes.setMinLines(3);
         etNotes.setGravity(Gravity.TOP | Gravity.START);
-        content.addView(makeCard("4. ተጨማሪ ማብራሪያ", etNotes));
+        formContainer.addView(makeCard("4. ተጨማሪ ማብራሪያ", etNotes));
 
-        // Card 5: ጠቋሚ ስም ወይም ስልክ
         EditText etReporter = makeInput("ለምሳሌ፡- 09...", InputType.TYPE_CLASS_PHONE);
-        content.addView(makeCard("5. ጠቋሚ ስም ወይም ስልክ (አማራጭ)", etReporter));
-        // Card 6: የGPS መጋጠሚያ ሁኔታ
-        tvGpsStatus = new TextView(this);
-        tvGpsStatus.setTextSize(13.5f);
-        tvGpsStatus.setTextColor(Color.parseColor(TEXT_DARK));
-        tvGpsStatus.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
-        tvGpsStatus.setPadding(dp(12), dp(12), dp(12), dp(12));
-        content.addView(makeCard("6. GPS / መጋጠሚያ (ራስ-ሰር)", tvGpsStatus));
+        formContainer.addView(makeCard("5. ጠቋሚ ስም ወይም ስልክ (አማራጭ)", etReporter));
 
-        // Submit Button
-        Button btnSubmit = new Button(this);
-        btnSubmit.setText("ጥቆማ አስገባ");
-        btnSubmit.setTextColor(Color.WHITE);
-        btnSubmit.setTextSize(16f);
-        btnSubmit.setTypeface(null, Typeface.BOLD);
-        btnSubmit.setBackground(makeFieldBox(PRIMARY_ACCENT, PRIMARY_DARK, 12));
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
-        btnParams.setMargins(0, dp(4), 0, dp(16));
-        btnSubmit.setLayoutParams(btnParams);
-        content.addView(btnSubmit);
+        TextView tvGps = makeGpsBox();
+        formContainer.addView(makeCard("6. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
 
-        // Result Summary Card
-        TextView tvResult = new TextView(this);
-        tvResult.setTextSize(14f);
-        tvResult.setTextColor(Color.parseColor("#064E3B"));
-        tvResult.setBackground(makeFieldBox("#D1FAE5", "#34D399", 12));
-        tvResult.setPadding(dp(16), dp(16), dp(16), dp(16));
-        tvResult.setVisibility(View.GONE);
-        content.addView(tvResult);
+        TextView tvResult = makeResultBox();
+        Button btnSubmit = makeSubmitButton("ጥቆማ አስገባ");
+        formContainer.addView(btnSubmit);
+        formContainer.addView(tvResult);
 
         btnSubmit.setOnClickListener(v -> {
             String location = etLocation.getText().toString().trim();
@@ -226,21 +261,24 @@ public class MainActivity extends AppCompatActivity {
                 etLocation.requestFocus();
                 return;
             }
-
-            if (SHEET_WEB_APP_URL.startsWith("PASTE_YOUR_WEB_APP_URL_HERE") || SHEET_WEB_APP_URL.trim().isEmpty()) {
-                Toast.makeText(this, "እባክዎ መጀመሪያ Google Apps Script Web App URL ያስገቡ", Toast.LENGTH_LONG).show();
-                return;
-            }
+            String coordinates = fetchCurrentCoordinates();
+            tvGps.setText(coordinates);
 
             String type = spType.getSelectedItem().toString();
             String severity = spSeverity.getSelectedItem().toString();
-            String notesRaw = etNotes.getText().toString().trim();
-            String reporterRaw = etReporter.getText().toString().trim();
-            String coordinates = fetchCurrentCoordinates();
-            tvGpsStatus.setText(coordinates);
+            String notesDisplay = etNotes.getText().toString().trim().isEmpty() ? "ምንም ማብራሪያ አልተሰጠም" : etNotes.getText().toString().trim();
+            String reporterDisplay = etReporter.getText().toString().trim().isEmpty() ? "አልተጠቀሰም" : etReporter.getText().toString().trim();
 
-            String notesDisplay = notesRaw.isEmpty() ? "ምንም ማብራሪያ አልተሰጠም" : notesRaw;
-            String reporterDisplay = reporterRaw.isEmpty() ? "አልተጠቀሰም" : reporterRaw;
+            JSONObject payload = new JSONObject();
+            try {
+                payload.put("form_type", "road_damage");
+                payload.put("road_name", location);
+                payload.put("issue_type", type);
+                payload.put("severity", severity);
+                payload.put("description", notesDisplay);
+                payload.put("coordinates", coordinates);
+                payload.put("reporter", reporterDisplay);
+            } catch (Exception ignored) {}
 
             String summary = "✓ ጥቆማ በሚገባ ተመዝግቧል!\n\n"
                     + "• አካባቢ፡ " + location + "\n"
@@ -249,126 +287,277 @@ public class MainActivity extends AppCompatActivity {
                     + "• ማብራሪያ፡ " + notesDisplay + "\n"
                     + "• ጠቋሚ፡ " + reporterDisplay + "\n"
                     + "• GPS፡ " + coordinates;
-
-            btnSubmit.setEnabled(false);
-            btnSubmit.setText("እየተላከ ነው...");
-
-            sendReportToGoogleSheet(
-                    location,
-                    type,
-                    severity,
-                    notesDisplay,
-                    coordinates,
-                    reporterDisplay,
-                    () -> runOnUiThread(() -> {
-                        btnSubmit.setEnabled(true);
-                        btnSubmit.setText("ጥቆማ አስገባ");
-
-                        tvResult.setText(summary);
-                        tvResult.setVisibility(View.VISIBLE);
-
-                        etLocation.setText("");
-                        etNotes.setText("");
-                        etReporter.setText("");
-
-                        Toast.makeText(this, "ጥቆማው ወደ Google Sheet ተልኳል", Toast.LENGTH_SHORT).show();
-                    }),
-                    errorMsg -> runOnUiThread(() -> {
-                        btnSubmit.setEnabled(true);
-                        btnSubmit.setText("ጥቆማ አስገባ");
-                        Toast.makeText(this, "መላክ አልተሳካም፡ " + errorMsg, Toast.LENGTH_LONG).show();
-                    })
-            );
+                    submitPayload(payload, summary, btnSubmit, "ጥቆማ አስገባ", tvResult, () -> {
+                etLocation.setText("");
+                etNotes.setText("");
+                etReporter.setText("");
+            });
         });
-        root.addView(content);
-        scrollView.addView(root);
-        setContentView(scrollView);
-
-        ensureLocationPermissionAndRefresh();
     }
 
-    private void ensureLocationPermissionAndRefresh() {
-        boolean fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-        boolean coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
+    // ==================== 2. PATROL FORM ====================
+    private void buildPatrolForm() {
+        EditText etExpertName = makeInput("የባለሙያ ሙሉ ስም ያስገቡ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("1. የባለሙያ ስም *", etExpertName));
 
-        if (!fineGranted && !coarseGranted) {
-            tvGpsStatus.setText("የLocation ፈቃድ በመጠበቅ ላይ...");
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-                    LOCATION_PERMISSION_REQUEST_CODE
-            );
-        } else {
-            tvGpsStatus.setText(fetchCurrentCoordinates());
+        EditText etPatrolDate = makeDatePickerInput();
+        formContainer.addView(makeCard("2. ፓትሮል የተደረገበት ቀን *", etPatrolDate));
+
+        Spinner spTeam = makeSpinner(new String[]{"ቡድን 1", "ቡድን 2", "ቡድን 3", "ቡድን 4"});
+        formContainer.addView(makeCard("3. ፓትሮል ያደረገው ቡድን *", spTeam));
+
+        Spinner spSubCity = makeSpinner(new String[]{
+                "1. አዲስ ከተማ ክፍለ ከተማ",
+                "2. ኮልፌ ቀራኒዮ ክፍለ ከተማ"
+        });
+        formContainer.addView(makeCard("4. ክፍለ ከተማ *", spSubCity));
+
+        String[] woredas = new String[15];
+        for (int i = 0; i < 15; i++) {
+            woredas[i] = String.valueOf(i + 1);
         }
-    }
+        Spinner spWoreda = makeSpinner(woredas);
+        formContainer.addView(makeCard("5. ወረዳ (1 - 15) *", spWoreda));
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
-            if (tvGpsStatus != null) {
-                tvGpsStatus.setText(fetchCurrentCoordinates());
+        EditText etResponsible = makeInput("ጉዳት ያደረሰውን አካል / ድርጅት ያስገቡ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("6. ጉዳት ያደረሰው አካል", etResponsible));
+
+        EditText etRoadNo = makeInput("የመንገድ ቁጥር ወይም ዋና መንገድ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("7. ፓትሮል የተደረገበት ቦታ (የመንገድ ቁጥር)", etRoadNo));
+
+        EditText etSpecificLoc = makeInput("ጥፋቱ የተፈጸመበት ልዩ ቦታ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("8. ጥፋቱ የተፈጸመበት (ልዩ ቦታ) *", etSpecificLoc));
+
+        EditText etViolationType = makeInput("በመንገዱ ላይ የደረሰ የጥፋት ዓይነት", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("9. በመንገዱ ላይ የደረሰ የጥፋት ዓይነት", etViolationType));
+
+        Spinner spDamageLevel = makeSpinner(new String[]{"ከፍተኛ", "መጠነኛ ያለበት", "ዝቅተኛ"});
+        formContainer.addView(makeCard("10. የመንገዱ ጉዳት መጠን", spDamageLevel));
+
+        Spinner spActionTaken = makeSpinner(new String[]{
+                "የቃል ማስጠንቀቂያ ተሰጥቷል",
+                "የጽሑፍ ማስጠንቀቂያ ተሰጥቷል"
+        });
+        formContainer.addView(makeCard("11. የተወሰደ እርምጃ", spActionTaken));
+
+        Spinner spCorrective = makeSpinner(new String[]{
+                "ጉዳት ያደረሰው አካል የጉዳት ካሳ ተጠይቋል",
+                "ንብረቱ እንዲወረስ ተደርጓል"
+        });
+        formContainer.addView(makeCard("12. በተሰጠው ማስጠንቀቂያ መሠረት የተወሰደ ማስተካከያ", spCorrective));
+
+        EditText etNoWarning = makeInput("ማስጠንቀቂያ ካልተሰጠ ምክንያቱን ያስገቡ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("13. ማስጠንቀቂያ ካልተሰጠ ያልተሰጠበት ምክንያት", etNoWarning));
+
+        EditText etDistance = makeInput("ለምሳሌ፡- 5.2 km", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("14. የተሸፈነ ርቀት (Distance Coverage)", etDistance));
+
+        TextView tvGps = makeGpsBox();
+        formContainer.addView(makeCard("15. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
+
+        TextView tvResult = makeResultBox();
+        Button btnSubmit = makeSubmitButton("የፓትሮል ሪፖርት አስገባ");
+        formContainer.addView(btnSubmit);
+        formContainer.addView(tvResult);
+
+        btnSubmit.setOnClickListener(v -> {
+            String expertName = etExpertName.getText().toString().trim();
+            String specificLoc = etSpecificLoc.getText().toString().trim();
+            if (expertName.isEmpty()) {
+                etExpertName.setError("እባክዎ የባለሙያውን ስም ያስገቡ");
+                etExpertName.requestFocus();
+                return;
             }
-        }
-    }
-
-    private String fetchCurrentCoordinates() {
-        boolean fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-        boolean coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-
-        if (!fineGranted && !coarseGranted) {
-            return "ፈቃድ አልተሰጠም";
-        }
-
-        try {
-            LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-            if (locationManager == null) {
-                return "GPS አልተገኘም";
+            if (specificLoc.isEmpty()) {
+                etSpecificLoc.setError("እባክዎ ጥፋቱ የተፈጸመበትን ልዩ ቦታ ያስገቡ");
+                etSpecificLoc.requestFocus();
+                return;
             }
 
-            Location bestLocation = null;
-            for (String provider : locationManager.getProviders(true)) {
-                Location l = locationManager.getLastKnownLocation(provider);
-                if (l == null) continue;
-                if (bestLocation == null || l.getAccuracy() < bestLocation.getAccuracy()) {
-                    bestLocation = l;
-                }
+            String coordinates = fetchCurrentCoordinates();
+            tvGps.setText(coordinates);
+            String patrolDate = etPatrolDate.getText().toString().trim();
+            String team = spTeam.getSelectedItem().toString();
+            String subCity = spSubCity.getSelectedItem().toString();
+            String woreda = spWoreda.getSelectedItem().toString();
+            String responsible = etResponsible.getText().toString().trim();
+            String roadNo = etRoadNo.getText().toString().trim();
+            String violationType = etViolationType.getText().toString().trim();
+            String damageLevel = spDamageLevel.getSelectedItem().toString();
+            String actionTaken = spActionTaken.getSelectedItem().toString();
+            String corrective = spCorrective.getSelectedItem().toString();
+            String noWarning = etNoWarning.getText().toString().trim();
+            String distance = etDistance.getText().toString().trim();
+
+            JSONObject payload = new JSONObject();
+            try {
+                payload.put("form_type", "patrol");
+                payload.put("expert_name", expertName);
+                payload.put("patrol_date", patrolDate);
+                payload.put("patrol_team", team);
+                payload.put("sub_city", subCity);
+                payload.put("woreda", woreda);
+                payload.put("responsible_party", responsible);
+                payload.put("road_number", roadNo);
+                payload.put("specific_location", specificLoc);
+                payload.put("violation_type", violationType);
+                payload.put("damage_level", damageLevel);
+                payload.put("action_taken", actionTaken);
+                payload.put("corrective_action", corrective);
+                payload.put("no_warning_reason", noWarning);
+                payload.put("distance_coverage", distance);
+                payload.put("coordinates", coordinates);
+            } catch (Exception ignored) {}
+
+            String summary = "✓ የፓትሮል ሪፖርት ተመዝግቧል!\n\n"
+                    + "• ባለሙያ፡ " + expertName + "\n"
+                    + "• ቀን፡ " + patrolDate + "\n"
+                    + "• ቡድን፡ " + team + "\n"
+                    + "• ክ/ከተማ፡ " + subCity + " | ወረዳ፡ " + woreda + "\n"
+                    + "• ልዩ ቦታ፡ " + specificLoc + "\n"
+                    + "• ጉዳት መጠን፡ " + damageLevel + "\n"
+                    + "• GPS፡ " + coordinates;
+
+            submitPayload(payload, summary, btnSubmit, "የፓትሮል ሪፖርት አስገባ", tvResult, () -> {
+                etExpertName.setText("");
+                etResponsible.setText("");
+                etRoadNo.setText("");
+                etSpecificLoc.setText("");
+                etViolationType.setText("");
+                etNoWarning.setText("");
+                etDistance.setText("");
+            });
+        });
+    }
+
+    // ==================== 3. FUEL TRACKING FORM ====================
+    private void buildFuelForm() {
+        EditText etPlate = makeInput("ለምሳሌ፡- AA-3-12345 ወይም Mach-04", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("1. የመኪና / ማሽነሪ ታርጋ ወይም መለያ *", etPlate));
+
+        Spinner spVehicleType = makeSpinner(new String[]{
+                "Grader (ግራደር)",
+                "Dozer (ዶዘር)",
+                "Excavator (ኤክስካቫተር)",
+                "Dump Truck (ከባድ የጭነት መኪና)",
+                "Roller / Compactor",
+                "ሌላ ማሽነሪ / ተሽከርካሪ"
+        });
+        formContainer.addView(makeCard("2. የማሽነሪው / ተሽከርካሪው ዓይነት *", spVehicleType));
+
+        Spinner spFuelType = makeSpinner(new String[]{"ናፍጣ (Diesel)", "ቤንዚን (Petrol)"});
+        formContainer.addView(makeCard("3. የነዳጅ ዓይነት *", spFuelType));
+
+        EditText etLiters = makeInput("ለምሳሌ፡- 150", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        formContainer.addView(makeCard("4. የተሞላው የነዳጅ መጠን (በሊትር) *", etLiters));
+
+        EditText etOdometer = makeInput("የኪሎሜትር (KM) ወይም የሰዓት (Hour Meter) ንባብ", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("5. የኪሎሜትር / ሰዓት ንባብ (Odometer / Hour)", etOdometer));
+        EditText etStation = makeInput("የመሥሪያ ቤት ዴፖ ወይም የማደያ ስም", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("6. የነዳጅ ማደያ / ዴፖ", etStation));
+
+        EditText etVoucher = makeInput("የደረሰኝ / ኩፖን / Voucher ቁጥር", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("7. የደረሰኝ / ኩፖን ቁጥር", etVoucher));
+
+        EditText etOperator = makeInput("የአሽከርካሪው / ኦፕሬተሩ ስም", InputType.TYPE_CLASS_TEXT);
+        formContainer.addView(makeCard("8. የአሽከርካሪው / ኦፕሬተሩ ስም *", etOperator));
+
+        EditText etNotes = makeInput("የሥራ ቦታ/ፕሮጀክት ወይም ማስታወሻ...", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        etNotes.setMinLines(2);
+        formContainer.addView(makeCard("9. ተጨማሪ ማብራሪያ", etNotes));
+
+        TextView tvGps = makeGpsBox();
+        formContainer.addView(makeCard("10. GPS / መጋጠሚያ (ራስ-ሰር)", tvGps));
+
+        TextView tvResult = makeResultBox();
+        Button btnSubmit = makeSubmitButton("የነዳጅ መረጃ አስገባ");
+        formContainer.addView(btnSubmit);
+        formContainer.addView(tvResult);
+
+        btnSubmit.setOnClickListener(v -> {
+            String plate = etPlate.getText().toString().trim();
+            String liters = etLiters.getText().toString().trim();
+            String operator = etOperator.getText().toString().trim();
+
+            if (plate.isEmpty()) {
+                etPlate.setError("እባክዎ የመኪናውን/ማሽነሪውን ታርጋ ወይም መለያ ያስገቡ");
+                etPlate.requestFocus();
+                return;
+            }
+            if (liters.isEmpty()) {
+                etLiters.setError("እባክዎ የተሞላውን ሊትር ያስገቡ");
+                etLiters.requestFocus();
+                return;
+            }
+            if (operator.isEmpty()) {
+                etOperator.setError("እባክዎ የአሽከርካሪውን/ኦፕሬተሩን ስም ያስገቡ");
+                etOperator.requestFocus();
+                return;
             }
 
-            if (bestLocation != null) {
-                return String.format(Locale.US, "%.6f, %.6f", bestLocation.getLatitude(), bestLocation.getLongitude());
-            }
-            return "GPS አልተገኘም (Location ያብሩ)";
-        } catch (SecurityException e) {
-            return "ፈቃድ አልተሰጠም";
-        } catch (Exception e) {
-            return "GPS አልተገኘም";
-        }
+            String coordinates = fetchCurrentCoordinates();
+            tvGps.setText(coordinates);
+
+            String vehicleType = spVehicleType.getSelectedItem().toString();
+            String fuelType = spFuelType.getSelectedItem().toString();
+            String odometer = etOdometer.getText().toString().trim();
+            String station = etStation.getText().toString().trim();
+            String voucher = etVoucher.getText().toString().trim();
+            String notes = etNotes.getText().toString().trim();
+
+            JSONObject payload = new JSONObject();
+            try {
+                payload.put("form_type", "fuel");
+                payload.put("plate_number", plate);
+                payload.put("vehicle_type", vehicleType);
+                payload.put("fuel_type", fuelType);
+                payload.put("liters", liters);
+                payload.put("odometer", odometer);
+                payload.put("fuel_station", station);
+                payload.put("voucher_number", voucher);
+                payload.put("operator_name", operator);
+                payload.put("coordinates", coordinates);
+                payload.put("notes", notes);
+            } catch (Exception ignored) {}
+
+            String summary = "✓ የነዳጅ መረጃ ተመዝግቧል!\n\n"
+                    + "• ታርጋ/መለያ፡ " + plate + " (" + vehicleType + ")\n"
+                    + "• ነዳጅ፡ " + liters + " ሊትር (" + fuelType + ")\n"
+                    + "• ኦፕሬተር፡ " + operator + "\n"
+                    + "• GPS፡ " + coordinates;
+
+            submitPayload(payload, summary, btnSubmit, "የነዳጅ መረጃ አስገባ", tvResult, () -> {
+                etPlate.setText("");
+                etLiters.setText("");
+                etOdometer.setText("");
+                etStation.setText("");
+                etVoucher.setText("");
+                etOperator.setText("");
+                etNotes.setText("");
+            });
+        });
     }
 
-    private interface OnSuccessCallback {
-        void onSuccess();
+    // ==================== SUBMIT & NETWORK ====================
+    private interface OnClearFields {
+        void clear();
     }
-
-    private interface OnErrorCallback {
-        void onError(String message);
-    }
-
-    private void sendReportToGoogleSheet(
-            String roadName,
-            String issueType,
-            String severity,
-            String description,
-            String coordinates,
-            String reporter,
-            OnSuccessCallback onSuccess,
-            OnErrorCallback onError
+            private void submitPayload(
+            JSONObject payload,
+            String summaryText,
+            Button btnSubmit,
+            String defaultBtnText,
+            TextView tvResult,
+            OnClearFields onClear
     ) {
+        if (SHEET_WEB_APP_URL.trim().isEmpty()) {
+            Toast.makeText(this, "Web App URL አልተገባም", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        btnSubmit.setEnabled(false);
+        btnSubmit.setText("እየተላከ ነው...");
+
         new Thread(() -> {
             HttpURLConnection conn = null;
             try {
@@ -380,13 +569,6 @@ public class MainActivity extends AppCompatActivity {
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(20000);
                 conn.setReadTimeout(20000);
-                JSONObject payload = new JSONObject();
-                payload.put("road_name", roadName);
-                payload.put("issue_type", issueType);
-                payload.put("severity", severity);
-                payload.put("description", description);
-                payload.put("coordinates", coordinates);
-                payload.put("reporter", reporter);
 
                 try (OutputStream os = conn.getOutputStream()) {
                     byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
@@ -396,54 +578,162 @@ public class MainActivity extends AppCompatActivity {
 
                 int code = conn.getResponseCode();
                 InputStream stream = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
-                StringBuilder responseBuilder = new StringBuilder();
+                StringBuilder sb = new StringBuilder();
                 if (stream != null) {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
-                            responseBuilder.append(line);
+                            sb.append(line);
                         }
                     }
                 }
+                String responseText = sb.toString();
 
-                String responseText = responseBuilder.toString();
-                if (code >= 200 && code < 300) {
-                    if (responseText.contains("\"status\":\"error\"")) {
-                        onError.onError("Apps Script ስህተት አሳይቷል");
+                runOnUiThread(() -> {
+                    btnSubmit.setEnabled(true);
+                    btnSubmit.setText(defaultBtnText);
+                    if (code >= 200 && code < 300 && !responseText.contains("\"status\":\"error\"")) {
+                        tvResult.setText(summaryText);
+                        tvResult.setVisibility(View.VISIBLE);
+                        onClear.clear();
+                        Toast.makeText(this, "መረጃው ወደ Google Sheet ተልኳል", Toast.LENGTH_SHORT).show();
                     } else {
-                        onSuccess.onSuccess();
+                        Toast.makeText(this, "መላክ አልተሳካም (HTTP " + code + ")", Toast.LENGTH_LONG).show();
                     }
-                } else {
-                    onError.onError("HTTP " + code);
-                }
+                });
             } catch (Exception e) {
-                onError.onError(e.getMessage() != null ? e.getMessage() : "የኔትወርክ ችግር");
+                String err = e.getMessage() != null ? e.getMessage() : "የኔትወርክ ችግር";
+                runOnUiThread(() -> {
+                    btnSubmit.setEnabled(true);
+                    btnSubmit.setText(defaultBtnText);
+                    Toast.makeText(this, "መላክ አልተሳካም፡ " + err, Toast.LENGTH_LONG).show();
+                });
             } finally {
-                if (conn != null) {
-                    conn.disconnect();
-                }
+                if (conn != null) conn.disconnect();
             }
         }).start();
     }
 
-    private LinearLayout makeCard(String labelText, View fieldView) {
+    // ==================== GPS & PERMISSIONS ====================
+    private void ensureLocationPermission() {
+        boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        if (!fine && !coarse) {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                    LOCATION_PERMISSION_REQUEST_CODE
+            );
+        }
+    }
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+            switchTab(activeTab);
+        }
+    }
+
+    private String fetchCurrentCoordinates() {
+        boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        if (!fine && !coarse) return "ፈቃድ አልተሰጠም";
+
+        try {
+            LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            if (lm == null) return "GPS አልተገኘም";
+
+            Location best = null;
+            for (String provider : lm.getProviders(true)) {
+                Location loc = lm.getLastKnownLocation(provider);
+                if (loc != null && (best == null || loc.getAccuracy() < best.getAccuracy())) {
+                    best = loc;
+                }
+            }
+            if (best != null) {
+                return String.format(Locale.US, "%.6f, %.6f", best.getLatitude(), best.getLongitude());
+            }
+            return "GPS አልተገኘም (Location ያብሩ)";
+        } catch (Exception e) {
+            return "GPS አልተገኘም";
+        }
+    }
+
+    // ==================== UI HELPERS ====================
+    private EditText makeDatePickerInput() {
+        EditText et = makeInput("ቀን ይምረጡ (mm/dd/yyyy)", InputType.TYPE_CLASS_TEXT);
+        et.setFocusable(false);
+        et.setClickable(true);
+        Calendar cal = Calendar.getInstance();
+        String today = String.format(Locale.US, "%02d/%02d/%04d",
+                cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH), cal.get(Calendar.YEAR));
+        et.setText(today);
+        et.setOnClickListener(v -> new DatePickerDialog(this, (view, year, month, dayOfMonth) -> {
+            String picked = String.format(Locale.US, "%02d/%02d/%04d", month + 1, dayOfMonth, year);
+            et.setText(picked);
+        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show());
+        return et;
+    }
+
+    private Spinner makeSpinner(String[] items) {
+        Spinner sp = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, items);
+        sp.setAdapter(adapter);
+        sp.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
+        sp.setPadding(dp(10), dp(6), dp(10), dp(6));
+        return sp;
+    }
+
+    private TextView makeGpsBox() {
+        TextView tv = new TextView(this);
+        tv.setText(fetchCurrentCoordinates());
+        tv.setTextSize(13.5f);
+        tv.setTextColor(Color.parseColor(TEXT_DARK));
+        tv.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
+        tv.setPadding(dp(12), dp(12), dp(12), dp(12));
+        return tv;
+    }
+
+    private Button makeSubmitButton(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(15.5f);
+        btn.setTypeface(null, Typeface.BOLD);
+        btn.setBackground(makeFieldBox(PRIMARY_ACCENT, PRIMARY_DARK, 12));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52));
+        params.setMargins(0, dp(4), 0, dp(14));
+        btn.setLayoutParams(params);
+        return btn;
+    }
+
+    private TextView makeResultBox() {
+        TextView tv = new TextView(this);
+        tv.setTextSize(13.5f);
+        tv.setTextColor(Color.parseColor("#064E3B"));
+        tv.setBackground(makeFieldBox("#D1FAE5", "#34D399", 12));
+        tv.setPadding(dp(14), dp(14), dp(14), dp(14));
+        tv.setVisibility(View.GONE);
+        return tv;
+    }
+        private LinearLayout makeCard(String labelText, View fieldView) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(makeFieldBox(CARD_WHITE, BORDER_SOFT, 14));
         card.setPadding(dp(14), dp(12), dp(14), dp(14));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        cardParams.setMargins(0, 0, 0, dp(12));
-        card.setLayoutParams(cardParams);
+        params.setMargins(0, 0, 0, dp(12));
+        card.setLayoutParams(params);
 
         TextView label = new TextView(this);
         label.setText(labelText);
-        label.setTextSize(14f);
+        label.setTextSize(13.5f);
         label.setTypeface(null, Typeface.BOLD);
         label.setTextColor(Color.parseColor(TEXT_DARK));
         label.setPadding(0, 0, 0, dp(8));
         card.addView(label);
-
         card.addView(fieldView);
         return card;
     }
@@ -454,7 +744,7 @@ public class MainActivity extends AppCompatActivity {
         et.setInputType(inputType);
         et.setTextColor(Color.parseColor(TEXT_DARK));
         et.setHintTextColor(Color.parseColor(TEXT_MUTED));
-        et.setTextSize(14.5f);
+        et.setTextSize(14f);
         et.setBackground(makeFieldBox(FIELD_BG, BORDER_SOFT, 10));
         et.setPadding(dp(12), dp(12), dp(12), dp(12));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
